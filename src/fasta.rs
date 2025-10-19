@@ -1,10 +1,11 @@
 use tokio::fs::File;
-use tokio::io::{AsyncSeekExt, AsyncReadExt, BufReader};
+use tokio::io::{SeekFrom, AsyncSeekExt, AsyncReadExt, BufReader};
 
 use std::path::Path;
 
 use crate::error;
 use crate::fai::FaiIndex;
+use crate::contig::Contig;
 
 pub struct Fasta
 {
@@ -73,6 +74,32 @@ impl Fasta
 			.filter(|&b| b != b'\n' && b != b'\r')
 			.map(|b| b as char)
 			.collect())
+	}
+
+	pub async fn read_tid(&mut self, tid: &str) -> error::Result<Contig>
+	{
+		let (file_start, file_end) = self
+			.index
+			.as_ref()
+			.ok_or(error::Error::NoFAIDX)?
+			.get_tid_offsets(tid)
+			.ok_or(error::Error::InvalidRegion)?;
+
+		self.reader.seek(SeekFrom::Start(file_start)).await?;
+
+		let mut buf = vec![0u8; (file_end - file_start) as usize];
+		self.reader.read_exact(&mut buf).await?;
+
+		let seq: String = buf
+			.into_iter()
+			.filter(|&b| b != b'\n' && b != b'\r')
+			.map(|b| b as char)
+			.collect();
+
+		Ok(Contig {
+			tid: tid.to_string(),
+			sequence: seq,
+		})
 	}
 }
 
@@ -245,5 +272,21 @@ mod tests
 
 		let result = fasta.read_region("chr1", 0, 4).await;
 		assert!(matches!(result.unwrap_err(), error::Error::NoFAIDX));
+	}
+
+	#[tokio::test]
+	async fn test_read_tid_and_region_in_memory()
+	{
+		let (_dir, fasta_path, fai_path) = create_test_fasta_and_fai().await;
+		let mut fasta = Fasta::from_path(&fasta_path, Some(&fai_path))
+			.await
+			.unwrap();
+
+		let contig = fasta.read_tid("chr1").await.unwrap();
+		assert_eq!(contig.tid, "chr1");
+		assert_eq!(contig.sequence, "ACGTACGTACGT");
+
+		let region = contig.read_region(4, 8).unwrap();
+		assert_eq!(region, "ACGT");
 	}
 }

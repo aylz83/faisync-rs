@@ -65,4 +65,10 @@ impl FaiIndex
 
 		Some((start_file_offset, end_file_offset))
 	}
+
+	pub fn get_tid_offsets(&self, tid: &str) -> Option<(u64, u64)>
+	{
+		let entry = self.entries.get(tid)?;
+		Some((entry.offset, entry.offset + entry.length))
+	}
 }
