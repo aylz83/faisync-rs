@@ -2,6 +2,13 @@
 name = "faisync"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+readme = "README.md"
+keywords = ["sequencing", "bioinformatics"]
+authors = ["Eilidh Ward"]
+categories = ["science", "filesystem"]
+description = "A small Rust crate to asynchronously (with tokio) read FASTA index (FAI) files (or from memory) and obtain relevant sequences from specific regions from the associated FASTA"
+repository = "https://github.com/aylz83/faisync-rs"
 
 [dependencies]
 nom = "8.0.0"
