@@ -1,5 +1,5 @@
 use tokio::fs::File;
-use tokio::io::{SeekFrom, AsyncSeekExt, AsyncReadExt, BufReader};
+use tokio::io::{SeekFrom, AsyncSeekExt, AsyncRead, AsyncSeek, AsyncReadExt, BufReader};
 
 use std::path::Path;
 
@@ -7,13 +7,15 @@ use crate::error;
 use crate::fai::FaiIndex;
 use crate::contig::Contig;
 
-pub struct Fasta
+pub struct Fasta<R>
+where
+	R: AsyncRead + AsyncSeek + std::marker::Send + std::marker::Unpin,
 {
-	reader: BufReader<File>,
+	reader: BufReader<R>,
 	index: Option<FaiIndex>,
 }
 
-impl Fasta
+impl Fasta<File>
 {
 	pub async fn from_path<P>(fasta_path: P, fai_path: Option<P>) -> error::Result<Self>
 	where
@@ -49,6 +51,27 @@ impl Fasta
 
 		Ok(Fasta {
 			reader,
+			index: fai_index,
+		})
+	}
+}
+
+impl<R> Fasta<R>
+where
+	R: AsyncRead + AsyncSeek + std::marker::Send + std::marker::Unpin,
+{
+	pub async fn from_reader(reader: R, fai_reader: Option<R>) -> error::Result<Self>
+	{
+		let async_reader = BufReader::new(reader);
+
+		let fai_index = match fai_reader
+		{
+			Some(reader) => Some(FaiIndex::from_reader(reader).await?),
+			None => None,
+		};
+
+		Ok(Fasta {
+			reader: async_reader,
 			index: fai_index,
 		})
 	}

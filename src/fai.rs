@@ -1,5 +1,4 @@
-use tokio::{fs::File, io::{AsyncBufReadExt, BufReader}};
-
+use tokio::{fs::File, io::{AsyncRead, AsyncBufReadExt, BufReader}};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -29,7 +28,15 @@ impl FaiIndex
 	{
 		let file = File::open(path).await?;
 		let reader = BufReader::new(file);
-		let mut lines = reader.lines();
+		Self::from_reader(reader).await
+	}
+
+	pub async fn from_reader<R>(reader: R) -> error::Result<Self>
+	where
+		R: AsyncRead + std::marker::Send + std::marker::Unpin,
+	{
+		let async_reader = BufReader::new(reader);
+		let mut lines = async_reader.lines();
 
 		let mut entries = HashMap::new();
 
@@ -43,7 +50,6 @@ impl FaiIndex
 		Ok(Self { entries })
 	}
 
-	/// Given chr, start, end (0-based, end exclusive), return file byte ranges to read
 	pub fn get_region_offsets(&self, chr: &str, start: u64, end: u64) -> Option<(u64, u64)>
 	{
 		let entry = self.entries.get(chr)?;
