@@ -11,6 +11,7 @@ description = "A small Rust crate to asynchronously (with tokio) read FASTA inde
 repository = "https://github.com/aylz83/faisync-rs"
 
 [dependencies]
+async-trait = "0.1.89"
 nom = "8.0.0"
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["full"] }

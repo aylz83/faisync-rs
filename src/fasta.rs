@@ -1,20 +1,21 @@
 use tokio::fs::File;
 use tokio::io::{SeekFrom, AsyncSeekExt, AsyncRead, AsyncSeek, AsyncReadExt, BufReader};
+use tokio::sync::Mutex;
 
 use std::path::Path;
 use std::collections::HashMap;
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use crate::error;
-use crate::fai::FaiIndex;
-use crate::contig::Contig;
+use crate::{FaiIndex, Contig, MemoryContig, FileContig};
 
 pub struct Fasta<R>
 where
-	R: AsyncRead + AsyncSeek + std::marker::Send + std::marker::Unpin,
+	R: AsyncRead + AsyncSeek + std::marker::Send + std::marker::Unpin + 'static,
 {
-	reader: BufReader<R>,
-	index: Option<FaiIndex>,
+	reader: Arc<Mutex<BufReader<R>>>,
+	index: Option<Arc<FaiIndex>>,
 }
 
 impl Fasta<File>
@@ -48,8 +49,9 @@ impl Fasta<File>
 			}
 		};
 
+		let fai_index: Option<Arc<FaiIndex>> = fai_index.map(Arc::new);
 		let file = File::open(fasta_path).await?;
-		let reader = BufReader::new(file);
+		let reader = Arc::new(Mutex::new(BufReader::new(file)));
 
 		Ok(Fasta {
 			reader,
@@ -60,20 +62,21 @@ impl Fasta<File>
 
 impl<R> Fasta<R>
 where
-	R: AsyncRead + AsyncSeek + std::marker::Send + std::marker::Unpin,
+	R: AsyncRead + AsyncSeek + std::marker::Send + std::marker::Unpin + 'static,
 {
 	pub async fn from_reader(reader: R, fai_reader: Option<R>) -> error::Result<Self>
 	{
-		let async_reader = BufReader::new(reader);
-
 		let fai_index = match fai_reader
 		{
 			Some(reader) => Some(FaiIndex::from_reader(reader).await?),
 			None => None,
 		};
 
+		let reader = Arc::new(Mutex::new(BufReader::new(reader)));
+		let fai_index = fai_index.map(Arc::new);
+
 		Ok(Fasta {
-			reader: async_reader,
+			reader: reader,
 			index: fai_index,
 		})
 	}
@@ -87,12 +90,11 @@ where
 			.get_region_offsets(tid, start, end)
 			.ok_or_else(|| error::Error::InvalidRegion)?;
 
-		self.reader
-			.seek(tokio::io::SeekFrom::Start(file_start))
-			.await?;
+		let mut reader = self.reader.lock().await;
+		reader.seek(tokio::io::SeekFrom::Start(file_start)).await?;
 
 		let mut buf = vec![0u8; (file_end - file_start) as usize];
-		self.reader.read_exact(&mut buf).await?;
+		reader.read_exact(&mut buf).await?;
 
 		Ok(buf
 			.into_iter()
@@ -113,42 +115,43 @@ where
 			.collect::<Vec<(String, u64)>>())
 	}
 
-	pub async fn read_all_tids(&mut self) -> error::Result<HashMap<Cow<'static, str>, Contig>>
+	pub async fn read_all_mmap(&mut self) -> error::Result<HashMap<Cow<'static, str>, Contig>>
 	{
-		let index = &self.index.as_ref().ok_or_else(|| error::Error::NoFAIDX)?;
+		let tids: Vec<String> = {
+			let index = self.index.as_ref().ok_or(error::Error::NoFAIDX)?;
+			index.entries.keys().cloned().collect()
+		};
 
-		let mut results = HashMap::<Cow<'static, str>, Contig>::with_capacity(index.entries.len());
+		let mut results = HashMap::with_capacity(tids.len());
 
-		for tid in index.entries.keys()
+		for tid in tids
 		{
-			let (file_start, file_end) = index
-				.get_tid_offsets(tid)
-				.ok_or(error::Error::InvalidRegion)?;
-
-			self.reader.seek(SeekFrom::Start(file_start)).await?;
-
-			let mut buf = vec![0u8; (file_end - file_start) as usize];
-			self.reader.read_exact(&mut buf).await?;
-
-			let seq: String = buf
-				.into_iter()
-				.filter(|&b| b != b'\n' && b != b'\r')
-				.map(|b| b as char)
-				.collect();
-
-			results.insert(
-				tid.clone().into(),
-				Contig {
-					tid: tid.to_string(),
-					sequence: seq,
-				},
-			);
+			let contig = self.read_mmap_tid(&tid).await?;
+			results.insert(tid.into(), contig);
 		}
 
 		Ok(results)
 	}
 
-	pub async fn read_tid(&mut self, tid: &str) -> error::Result<Contig>
+	pub async fn read_all_io(&mut self) -> error::Result<HashMap<Cow<'static, str>, Contig>>
+	{
+		let tids: Vec<String> = {
+			let index = self.index.as_ref().ok_or(error::Error::NoFAIDX)?;
+			index.entries.keys().cloned().collect()
+		};
+
+		let mut results = HashMap::with_capacity(tids.len());
+
+		for tid in tids
+		{
+			let contig = self.read_io_tid(&tid).await?;
+			results.insert(tid.into(), contig);
+		}
+
+		Ok(results)
+	}
+
+	pub async fn read_mmap_tid(&mut self, tid: &str) -> error::Result<Contig>
 	{
 		let (file_start, file_end) = self
 			.index
@@ -157,12 +160,13 @@ where
 			.get_tid_offsets(tid)
 			.ok_or(error::Error::InvalidRegion)?;
 
-		self.reader.seek(SeekFrom::Start(file_start)).await?;
+		let mut reader = self.reader.lock().await;
+		reader.seek(SeekFrom::Start(file_start)).await?;
 
 		let mut buf = vec![0u8; (file_end - file_start) as usize];
-		self.reader.read_exact(&mut buf).await?;
+		reader.read_exact(&mut buf).await?;
 
-		let seq: String = buf
+		let sequence: String = buf
 			.into_iter()
 			.filter(|&b| b != b'\n' && b != b'\r')
 			.map(|b| b as char)
@@ -170,7 +174,19 @@ where
 
 		Ok(Contig {
 			tid: tid.to_string(),
-			sequence: seq,
+			source: Box::new(MemoryContig { sequence }),
+		})
+	}
+
+	pub async fn read_io_tid(&mut self, tid: &str) -> error::Result<Contig>
+	{
+		Ok(Contig {
+			tid: tid.to_string(),
+			source: Box::new(FileContig {
+				tid: tid.to_string(),
+				index: self.index.as_ref().map(Arc::clone),
+				reader: Arc::clone(&self.reader),
+			}),
 		})
 	}
 }
@@ -347,18 +363,60 @@ mod tests
 	}
 
 	#[tokio::test]
-	async fn test_read_tid_and_region_in_memory()
+	async fn test_read_mmap_tid()
 	{
 		let (_dir, fasta_path, fai_path) = create_test_fasta_and_fai().await;
 		let mut fasta = Fasta::from_path(&fasta_path, Some(&fai_path))
 			.await
 			.unwrap();
 
-		let contig = fasta.read_tid("chr1").await.unwrap();
-		assert_eq!(contig.tid, "chr1");
-		assert_eq!(contig.sequence, "ACGTACGTACGT");
+		let mut contig = fasta.read_mmap_tid("chr1").await.unwrap();
+		let seq = contig.sequence().await.unwrap();
+		assert_eq!(seq, "ACGTACGTACGT");
 
-		let region = contig.read_region(4, 8).unwrap();
+		let region = contig.read_region(4, 8).await.unwrap();
 		assert_eq!(region, "ACGT");
+	}
+
+	#[tokio::test]
+	async fn test_read_io_tid()
+	{
+		let (_dir, fasta_path, fai_path) = create_test_fasta_and_fai().await;
+		let mut fasta = Fasta::from_path(&fasta_path, Some(&fai_path))
+			.await
+			.unwrap();
+
+		let mut contig = fasta.read_io_tid("chr1").await.unwrap();
+		let seq = contig.sequence().await.unwrap();
+		assert_eq!(seq, "ACGTACGTACGT");
+
+		let region = contig.read_region(0, 4).await.unwrap();
+		assert_eq!(region, "ACGT");
+	}
+
+	#[tokio::test]
+	async fn test_read_all_mmap()
+	{
+		let (_dir, fasta_path, fai_path) = create_test_fasta_and_fai().await;
+		let mut fasta = Fasta::from_path(&fasta_path, Some(&fai_path))
+			.await
+			.unwrap();
+
+		let mut all = fasta.read_all_mmap().await.unwrap();
+		let seq = all.get_mut("chr1").unwrap().sequence().await.unwrap();
+		assert_eq!(seq, "ACGTACGTACGT");
+	}
+
+	#[tokio::test]
+	async fn test_read_all_io()
+	{
+		let (_dir, fasta_path, fai_path) = create_test_fasta_and_fai().await;
+		let mut fasta = Fasta::from_path(&fasta_path, Some(&fai_path))
+			.await
+			.unwrap();
+
+		let mut all = fasta.read_all_io().await.unwrap();
+		let seq = all.get_mut("chr1").unwrap().sequence().await.unwrap();
+		assert_eq!(seq, "ACGTACGTACGT");
 	}
 }

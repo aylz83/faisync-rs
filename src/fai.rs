@@ -66,9 +66,9 @@ impl FaiIndex
 		let start_file_offset = entry.offset + start_line * entry.line_width + start_offset_in_line;
 
 		// Number of full lines before `end`
-		let end_line = end / entry.line_bases;
-		let end_offset_in_line = end % entry.line_bases;
-		let end_file_offset = entry.offset + end_line * entry.line_width + end_offset_in_line;
+		let end_line = (end - 1) / entry.line_bases;
+		let end_offset_in_line = (end - 1) % entry.line_bases;
+		let end_file_offset = entry.offset + end_line * entry.line_width + end_offset_in_line + 1;
 
 		Some((start_file_offset, end_file_offset))
 	}
