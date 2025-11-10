@@ -101,7 +101,19 @@ where
 			.collect())
 	}
 
-	pub async fn read_all(&mut self) -> error::Result<HashMap<Cow<'static, str>, Contig>>
+	pub fn tid_lengths(&self) -> error::Result<Vec<(String, u64)>>
+	{
+		Ok(self
+			.index
+			.as_ref()
+			.ok_or_else(|| error::Error::NoFAIDX)?
+			.entries
+			.iter()
+			.map(|(tid, index)| (tid.clone(), index.length))
+			.collect::<Vec<(String, u64)>>())
+	}
+
+	pub async fn read_all_tids(&mut self) -> error::Result<HashMap<Cow<'static, str>, Contig>>
 	{
 		let index = &self.index.as_ref().ok_or_else(|| error::Error::NoFAIDX)?;
 
