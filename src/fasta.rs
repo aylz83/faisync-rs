@@ -2,6 +2,8 @@ use tokio::fs::File;
 use tokio::io::{SeekFrom, AsyncSeekExt, AsyncRead, AsyncSeek, AsyncReadExt, BufReader};
 
 use std::path::Path;
+use std::collections::HashMap;
+use std::borrow::Cow;
 
 use crate::error;
 use crate::fai::FaiIndex;
@@ -97,6 +99,41 @@ where
 			.filter(|&b| b != b'\n' && b != b'\r')
 			.map(|b| b as char)
 			.collect())
+	}
+
+	pub async fn read_all(&mut self) -> error::Result<HashMap<Cow<'static, str>, Contig>>
+	{
+		let index = &self.index.as_ref().ok_or_else(|| error::Error::NoFAIDX)?;
+
+		let mut results = HashMap::<Cow<'static, str>, Contig>::with_capacity(index.entries.len());
+
+		for tid in index.entries.keys()
+		{
+			let (file_start, file_end) = index
+				.get_tid_offsets(tid)
+				.ok_or(error::Error::InvalidRegion)?;
+
+			self.reader.seek(SeekFrom::Start(file_start)).await?;
+
+			let mut buf = vec![0u8; (file_end - file_start) as usize];
+			self.reader.read_exact(&mut buf).await?;
+
+			let seq: String = buf
+				.into_iter()
+				.filter(|&b| b != b'\n' && b != b'\r')
+				.map(|b| b as char)
+				.collect();
+
+			results.insert(
+				tid.clone().into(),
+				Contig {
+					tid: tid.to_string(),
+					sequence: seq,
+				},
+			);
+		}
+
+		Ok(results)
 	}
 
 	pub async fn read_tid(&mut self, tid: &str) -> error::Result<Contig>

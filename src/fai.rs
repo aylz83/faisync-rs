@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::error;
 use crate::parser::parse_fai_line;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct FaiEntry
 {
 	pub name: String,
@@ -15,6 +15,7 @@ pub struct FaiEntry
 	pub line_width: u64,
 }
 
+#[derive(Clone)]
 pub struct FaiIndex
 {
 	pub entries: HashMap<String, FaiEntry>,
