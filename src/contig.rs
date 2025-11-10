@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::borrow::Cow;
+
 pub struct Contig
 {
 	pub tid: String,
@@ -15,3 +18,5 @@ impl Contig
 		Some(self.sequence.get(start as usize..end as usize)?.to_string())
 	}
 }
+
+pub type Contigs = HashMap<Cow<'static, str>, Contig>;
