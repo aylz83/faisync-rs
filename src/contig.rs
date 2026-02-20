@@ -106,12 +106,12 @@ pub struct Contig
 
 impl Contig
 {
-	pub async fn sequence(&mut self) -> Option<String>
+	pub async fn sequence(&self) -> Option<String>
 	{
 		self.source.sequence().await
 	}
 
-	pub async fn read_region(&mut self, start: u64, end: u64) -> Option<String>
+	pub async fn read_region(&self, start: u64, end: u64) -> Option<String>
 	{
 		self.source.read_region(start, end).await
 	}
