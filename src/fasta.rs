@@ -10,6 +10,8 @@ use std::sync::Arc;
 use crate::error;
 use crate::{FaiIndex, Contig, MemoryContig, FileContig};
 
+use crate::SyncSourceAdapter;
+
 pub struct Fasta<R>
 where
 	R: AsyncRead + AsyncSeek + std::marker::Send + std::marker::Unpin + 'static,
@@ -174,7 +176,7 @@ where
 
 		Ok(Contig {
 			tid: tid.to_string(),
-			source: Box::new(MemoryContig { sequence }),
+			source: Box::new(SyncSourceAdapter(MemoryContig { sequence })),
 		})
 	}
 
@@ -231,6 +233,19 @@ impl ReverseComplement for &str
 				_ => 'N',
 			})
 			.collect()
+	}
+}
+
+#[inline]
+pub fn reverse_complement(b: u8) -> u8
+{
+	match b
+	{
+		b'A' | b'a' => b'T',
+		b'T' | b't' => b'A',
+		b'C' | b'c' => b'G',
+		b'G' | b'g' => b'C',
+		_ => b,
 	}
 }
 
