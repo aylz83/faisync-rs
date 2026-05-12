@@ -2,6 +2,7 @@ use tokio::fs::File;
 use tokio::io::{SeekFrom, AsyncSeekExt, AsyncRead, AsyncSeek, AsyncReadExt, BufReader};
 use tokio::sync::Mutex;
 
+use std::path::PathBuf;
 use std::path::Path;
 use std::collections::HashMap;
 use std::borrow::Cow;
@@ -34,12 +35,21 @@ impl Fasta<File>
 		}
 		else
 		{
-			let fai_path = fasta_path.with_extension(
-				fasta_path
-					.extension()
-					.map(|ext| format!("{}.fai", ext.to_string_lossy()))
-					.unwrap_or_else(|| "fai".to_string()),
-			);
+			let fai_path = match fasta_path.file_name()
+			{
+				Some(name) =>
+				{
+					let mut name = name.to_os_string();
+					name.push(".fai");
+
+					match fasta_path.parent()
+					{
+						Some(parent) => parent.join(name),
+						None => PathBuf::from(name),
+					}
+				}
+				None => fasta_path.with_extension("fai"),
+			};
 
 			if tokio::fs::metadata(&fai_path).await.is_ok()
 			{
