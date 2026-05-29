@@ -23,16 +23,16 @@ pub struct FaiIndex
 
 impl FaiIndex
 {
-	pub async fn from_path<P>(path: P) -> error::Result<Self>
+	pub async fn from_path<P>(path: P, is_gencode: bool) -> error::Result<Self>
 	where
 		P: AsRef<Path>,
 	{
 		let file = File::open(path).await?;
 		let reader = BufReader::new(file);
-		Self::from_reader(reader).await
+		Self::from_reader(reader, is_gencode).await
 	}
 
-	pub async fn from_reader<R>(reader: R) -> error::Result<Self>
+	pub async fn from_reader<R>(reader: R, is_gencode: bool) -> error::Result<Self>
 	where
 		R: AsyncRead + std::marker::Send + std::marker::Unpin,
 	{
@@ -44,7 +44,8 @@ impl FaiIndex
 		while let Some(line) = lines.next_line().await?
 		{
 			let (_, entry) =
-				parse_fai_line(&(line + "\n")).map_err(|_| error::Error::ParseError)?;
+				parse_fai_line(&(line + "\n"), is_gencode).map_err(|_| error::Error::ParseError)?;
+
 			entries.insert(entry.name.clone(), entry);
 		}
 

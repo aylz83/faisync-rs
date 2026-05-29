@@ -23,7 +23,11 @@ where
 
 impl Fasta<File>
 {
-	pub async fn from_path<P>(fasta_path: P, fai_path: Option<P>) -> error::Result<Self>
+	pub async fn from_path<P>(
+		fasta_path: P,
+		fai_path: Option<P>,
+		is_gencode: bool,
+	) -> error::Result<Self>
 	where
 		P: AsRef<Path>,
 	{
@@ -31,7 +35,7 @@ impl Fasta<File>
 
 		let fai_index = if let Some(fai_path) = fai_path
 		{
-			Some(FaiIndex::from_path(fai_path).await?)
+			Some(FaiIndex::from_path(fai_path, is_gencode).await?)
 		}
 		else
 		{
@@ -53,7 +57,7 @@ impl Fasta<File>
 
 			if tokio::fs::metadata(&fai_path).await.is_ok()
 			{
-				Some(FaiIndex::from_path(fai_path).await?)
+				Some(FaiIndex::from_path(fai_path, is_gencode).await?)
 			}
 			else
 			{
@@ -76,11 +80,15 @@ impl<R> Fasta<R>
 where
 	R: AsyncRead + AsyncSeek + std::marker::Send + std::marker::Unpin + 'static,
 {
-	pub async fn from_reader(reader: R, fai_reader: Option<R>) -> error::Result<Self>
+	pub async fn from_reader(
+		reader: R,
+		fai_reader: Option<R>,
+		is_gencode: bool,
+	) -> error::Result<Self>
 	{
 		let fai_index = match fai_reader
 		{
-			Some(reader) => Some(FaiIndex::from_reader(reader).await?),
+			Some(reader) => Some(FaiIndex::from_reader(reader, is_gencode).await?),
 			None => None,
 		};
 
@@ -139,7 +147,8 @@ where
 		for tid in tids
 		{
 			let contig = self.read_mmap_tid(&tid).await?;
-			results.insert(tid.into(), contig);
+
+			results.insert(contig.tid.clone().into(), contig);
 		}
 
 		Ok(results)
@@ -157,7 +166,8 @@ where
 		for tid in tids
 		{
 			let contig = self.read_io_tid(&tid).await?;
-			results.insert(tid.into(), contig);
+
+			results.insert(contig.tid.clone().into(), contig);
 		}
 
 		Ok(results)
